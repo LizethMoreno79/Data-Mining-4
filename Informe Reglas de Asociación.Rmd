@@ -1,0 +1,492 @@
+---
+title: "Reglas de Asociación"
+date: "`r Sys.Date()`"
+author: "Lizeth Moreno"
+output:
+  rmdformats::readthedown:
+    highlight: kate
+---
+```{r warning=FALSE, include=FALSE}
+library(magrittr)
+library(arules)
+library(ggplot2)
+library(tidyverse)
+library(nortest)
+library(arulesViz)
+library(rCBA)
+```
+# Introducción
+
+La minería de las reglas de asociación es un área muy importante dentro de la minería de datos. Es un proceso no supervisado que tiene la finalidad de encontrar las reglas de asociación que se encuentran en las instancias de base de datos, su principal desarrollo ha sido en el área de los negocios,la base de datos que analiza la minería de las reglas de asociación son las transacciones que quedan registradas en una base de datos, en cada una de las transacciones el cliente lleva cierta cantidad de artículos de la canasta de artículos de venta que tiene ese negocio , con esta información capturada, los algoritmos de minería de las reglas de asociación, lleva a cabo un análisis en donde determina cuales artículos se venden unos con otros, de esta asociación de artículos (ítem) se obtienen las reglas de asociación, debido a la gran cantidad de artículos que están tiendas tienen, existe una explosión de las reglas que se pueden generar, para obtener solamente las reglas más importantes se usan dos parámetros, el soporte mínimo y la confianza mínima que sirven para seleccionar cuales son las reglas de asociación más interesantes. 
+
+## Reglas de Asociación
+
+Una regla de asociación es una implicación de la forma $A \rightarrow B$ ,esta regla de asociación dice que cuando se compra el ítem $A$ es probable que se compre el ítem $B$, tanto $A$ como $B$ pueden estar
+formados por uno o varios ítems. Otra interpretación que se le puede dar a la regla $A \rightarrow B$ es que cuando se cumple la condición $A$ se lleva a cabo la acción $B$. 
+
+## Soporte y Confianza
+
+El soporte y la confianza son parámetros importantes, para ello se define:
+$ X \rightarrow Y$, donde $X$ e $Y$ son conjuntos de ítems.
+
+### Soporte
+El soporte de $X \rightarrow Y$ es el porcentaje de las transacciones que contienen todos los ítems de $X$ e $Y$.
+ 
+Además se tiene que:
+
+Soporte$(X \rightarrow Y)=$ $P(X \cup Y)=$ Soporte $(X \cup Y)$
+
+### Confianza
+La confianza para $X \rightarrow Y$ es el porcentaje de
+transacciones que contienen $Y$, entre las transacciones que contienen $X$.
+
+Además se tiene que:
+
+Confianza $X \rightarrow Y=$ $P(Y/X)=\frac{Soporte(X \cup Y)}{Soporte (X)}$ 
+
+## Paquete arules
+El paquete de R arules implementa el algoritmo Apriori para la identificación de itemsets frecuentes y la creación de reglas de asociación a través de la función apriori(). También implementa el algoritmo Eclat con la función eclat().Tanto apriori() como eclat() reciben como argumento un objeto transaction con los datos de las transacciones.
+
+## Algoritmo A priori
+El proceso del algoritmo Apriori empieza con la obtención de los llamados conjuntos de ítems frecuentes, los cuales son aquellos conjuntos formados por los ítems cuyo soporte obtenido de la
+base de datos es superior al soporte mínimo solicitado por el usuario. Debido al amplio uso del algoritmo Apriori, desde que se formalizó la inducción de reglas de asociación, la obtención de los conjuntos de ítems frecuentes es una tarea común en dichos algoritmos. 
+
+# Desarrollo
+
+En el presente trabajo se tiene una base de datos de órdenes que contiene 12500 pedidos (transacciones) en un establecimiento donde se venden alimentos.
+
+```{r echo=FALSE, warning=FALSE}
+pedidos <- read.csv(file = "Base/orders.csv", header = TRUE, sep = ";")
+head(pedidos)
+```
+
+Cada línea del archivo contiene la información de un item y el identificador de la transacción (compra) a la que pertenece. Esta es la estructura en la que comúnmente se almacenan los datos dentro de una base de datos y que, en el ámbito de las transacciones, recibe el nombre de tabla larga o single.
+
+Para este caso de estudio, compras de alimentos, cada transacción está formada por todos los productos que se compran a la vez, es decir, el vínculo de unión no es el cliente sino cada una de los productos que compra .Por ejemplo se tiene que en la orden 68 se ha pedido 9 productos:
+```{r echo=FALSE}
+pedidos %>% filter(order_id == 68) %>% pull(product_name)
+```
+
+
+## Lectura  y Comprensión de Datos
+
+Con la función read.transactions() se pueden leer directamente los datos de archivos tipo texto y almacenarlos en un objeto de tipo transactions, que es la estructura de almacenamiento que emplea el paquete arules.Es importante recordar que los objetos de tipo transactions solo trabajan con información booleana, es decir, con la presencia o no de cada uno de los items en la transacción.
+
+```{r echo=FALSE}
+
+
+# Cargamos los datos a un objeto de tipo transaccion 
+transacciones <- read.transactions(file = "Base/orders.csv",
+                                   header = TRUE,
+                                   format = "single", 
+                                   sep = ";",
+                                   cols = c("order_id", "product_name"),  
+                                   rm.duplicates = TRUE)
+#rownames(transacciones)[1:5]
+transacciones
+
+```
+Ahora se tiene el objeto transacciones donde en las comlumnas se encuentran los productos que son 17917 y en las filas el código de la transacción  y en total son 12500.
+
+## Exploración de ítems
+
+Para observar de mejor manera las transacciones que se realizan, se puede observar el número de ítems que lo forman y cuáles son, por ejemplo:
+```{r echo=FALSE}
+inspect(transacciones[1:2])
+```
+
+
+
+```{r echo=FALSE}
+tamanhos_trans <- data.frame(tamaño = size(transacciones))
+head(tamanhos_trans)
+```
+
+
+Para las transacciones 1 y 2,  se han comprado 2 y 7 productos  respectivamente.
+
+Para una mejor explicación, se observa la distribución de las transacciones  y se tiene:
+```{r echo=FALSE}
+ggplot(tamanhos_trans, aes(x = tamaño)) +
+  geom_density(fill = "orangered3") +
+  labs(x = "Tamaño de las transacciones") +
+  theme_bw()
+```
+```{r echo=FALSE}
+lillie.test(tamanhos_trans$tamaño)
+quantile(sort(tamanhos_trans$tamaño), probs = seq(0,1,0.1))
+summary(tamanhos_trans)
+```
+Por el test de Kolmogorov-Smirnov se observa que el p-valor es menor que 0.05, es así como los datos transacciones no siguen una distribución normal. Además se oberva que 
+
+Además como se observa en los resultados anteriores, se tiene que en el número mayor de productos que se han comprado en una transacción es 68, también se tiene que el 70% de las transacciones se han adquirido como máximo 11 productos y en el 50% de las transacciones se adquieren 8 productos.
+
+El siguiente análisis básico consiste en identificar cuáles son los items más frecuentes (los que tienen mayor soporte) dentro del conjunto de todas las transacciones. Con la función itemFrequency() se puede extraer esta información de un objeto tipo transactions. El nombre de esta función puede causar confusión. Por “frecuencia” se hace referencia al soporte de cada item, que es la fracción de transacciones que contienen dicho item respecto al total de todas las transacciones. 
+```{r echo=FALSE}
+frecuencia_items <- itemFrequency(x = transacciones, type = "relative")
+frecuencia_items %>% sort(decreasing = TRUE) %>% head(5)
+```
+
+Como se observa en la tabla anterior el mayor soporte que tienen los productos es encabezado por Banana y es de 0.14
+
+Ahora se procede a observar el número de transacciones en las que aparece cada ítemen para ello se indica el argumento type = "absolute" en la función itemFrequency(), así se tiene:
+```{r echo=FALSE}
+frecuencia_items <- itemFrequency(x = transacciones, type = "absolute")
+frecuencia_items %>% sort(decreasing = TRUE) %>% head(5)
+```
+
+Por tanto analizando la tabla de soporte y la de transacciones de los productos, en ambos casos el alimento que mas compra la gente es Banana y aparece en 1718 transacciones, es por eso que su soporte es el mas alto.
+
+Continuando con el anális de reglas de asociación para la base de datos, es necesario recalcar que se debe encontrar patrones frecuentes, es decir se procederá a eliminar aquellas transacciones donde se haya adquirido un solo producto.
+
+```{r echo=FALSE}
+transacciones <- transacciones[tamanhos_trans > 1]
+dim(transacciones)
+```
+Donde al final se trabajará con 11733 transacciones, ya que se han reducido 767 por lo que solo habían comprado un producto.
+
+
+## Umbral y soporte de confianza
+
+Como bien se explico en la introducción el soporte hace referencia al número de transacciones que contienen un itemset dividido entre el total de transacciones, por lo que debido a la altas dimensiones de la base, el soporte tendrá que ser pequeño, así es que para este caso se considerata que un cojunto de items es frecuente si aparece en al menos en  15 transacciones y finalmente se establecerá una confianza del 70%.
+
+```{r echo=FALSE}
+soporte <- 15/dim(transacciones)[1]
+soporte
+
+confianza <- 0.7
+confianza
+```
+
+Es así que se tiene un soporte de 0.0012 y una confianza de 0.7.
+
+## Obtención de Ítems frecuentes
+
+Con la función apriori() se puede aplicar el algoritmo Apriori a un objeto de tipo transactions y extraer tanto itemsets frecuentes como reglas de asociación que superen un determinado soporte y confianza. 
+
+```{r echo=FALSE}
+# Busqueda de itemsets frecuentes
+itemsets_frecuentes <- apriori(data = transacciones,
+                               parameter = list(support = soporte,
+                                                target = "frequent itemsets"),
+                               control = list(verbose = FALSE))
+#summary(itemsets_frecuentes)
+summary(itemsets_frecuentes)
+```
+
+Se han encontrado un total de 2590 itemsets frecuentes que superan el soporte mínimo de 0.002, la mayoría de ellos (1314) formados por un item. En el siguiente listado se muestran los 6 itemsets con mayor soporte que, como cabe esperar, son los formados por items individuales (los itemsets de menor tamaño).
+
+
+
+```{r echo=FALSE}
+# Se muestran los top 10 itemsets de mayor a menor soporte
+top_10_itemsets <- sort(itemsets_frecuentes, by = "support", decreasing = TRUE)[1:6]
+inspect(top_10_itemsets)
+```
+
+```{r echo=FALSE}
+
+
+# Para representarlos con ggplot se convierte a dataframe 
+as(top_10_itemsets, Class = "data.frame") %>%
+  ggplot(aes(x = reorder(items, support), y = support)) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Itemsets más frecuentes", x = "itemsets") +
+  theme_bw()
+```
+
+En el gráfico anterior se observa de mejor manera que el producto que mas está en las transacciones es Banana.
+
+## Filtrado de itemsets
+
+Una vez que los itemsets frecuentes han sido identificados mediante el algoritmo Apripori, pueden ser filtrados con la función subset(). Esta función recibe dos argumentos: un objeto itemset o rules y una condición lógica que tienen que cumplir las reglas/itemsets para ser seleccionados.
+
+A manera de ejemplo Se procede a identificar aquellos itemsets frecuentes que contienen el item Organic Avocado .
+
+```{r echo=FALSE}
+itemsets_filtrado <- arules::subset(itemsets_frecuentes,
+                                    subset = items %in% "Organic Avocado")
+itemsets_filtrado
+```
+Se observa que se han encontrado 81 itmensets que contienen el item Organic Avocado y se muestra una lista de los 5 primeros:
+
+```{r echo=FALSE}
+inspect(itemsets_filtrado[1:5])
+```
+Se repite el proceso pero, esta vez, con aquellos itemsets que contienen Organic Avocado y Bunched Cilantro.
+```{r echo=FALSE}
+itemsets_filtrado <- arules::subset(itemsets_frecuentes,
+                                    subset = items %ain% c("Organic Avocado", "Banana"))
+itemsets_filtrado
+```
+
+
+Se han encontrado 5 de ellos y se los muestra a continuación:
+```{r echo=FALSE}
+inspect(itemsets_filtrado[1:5])
+
+```
+Puede observarse que muchos itemsets están a su vez contenidos en itemsets de orden superior, es decir, existen itemsets que son subsets de otros. Para identificar cuáles son, o cuales no lo son, se puede emplear la función is.subset(). Encontrar los itemsets que son subsets de otros itemsets implica comparar todos los pares de itemsets y determinar si uno está contenido en el otro. La función is.subset() realiza comparaciones entre dos conjuntos de itemsets y devuelve una matriz lógica que determina si el itemset de la fila está contenido en cada itemset de las columnas.
+
+```{r echo=FALSE}
+# Para encontrar los subsets dentro de un conjunto de itemsets, se compara el
+# conjunto de itemsets con sigo mismo.
+subsets <- is.subset(x = itemsets_frecuentes, y = itemsets_frecuentes, sparse = FALSE)
+```
+
+Para conocer el total de itemsets que son subsets de otros itemsets se cuenta el número total de TRUE en la matriz resultante.
+
+```{r echo=FALSE}
+sum(subsets)
+```
+
+Es  decir en la base de datos existen 5574 subconjutnos de otros itemsets.
+
+## Obtención de reglas de Asociación Con el algoritmo Apriori
+Para crear las reglas de asociación se sigue el mismo proceso que para obtener itemsets frecuentes pero, además de especificar un soporte mínimo, se tiene que establecer una confianza mínima para que una regla se incluya en los resultados. En este caso, se emplea una confianza mínima del 70%.
+
+```{r echo=FALSE}
+# Obtencion de reglas de asociacion
+
+reglas <- apriori(data = transacciones, 
+                  parameter = list(support = soporte,
+                                   confidence = confianza,
+                                   target = "rules"),
+                  control = list(verbose = FALSE))
+
+print(paste("Reglas generadas:", length(reglas)))
+summary(reglas)
+```
+
+
+Se han identificado un total de 7 reglas, la mayoría de ellas formadas por 3 items en el antecedente (parte izquierda de la regla).
+```{r echo=FALSE}
+inspect(sort(x = reglas, decreasing = TRUE, by = "confidence"))
+```
+
+## Evaluación de las reglas
+
+Además de la confianza y el soporte, existen otras métricas que permiten cuantificar la calidad de las reglas y la probabilidad de que reflejen relaciones reales. Algunas de las más empleadas son: Lift,Coverage y Fisher exact test.
+
+Para el caso de Lift, se tiene que es de 34,41 y mientras más alejado esté del uno más evidencias de que la regla no se debe a un artefacto aleatorio, es decir, mayor la evidencia de que la regla representa un patrón real.
+
+
+## Filtrado de reglas
+Cuando se crean reglas de asociación, pueden ser interesantes únicamente aquellas que contienen un determinado conjunto de items en el antecedente o en el consecuente. Con arules existen varias formas de seleccionar solo determinadas reglas.
+
+### Restringir las reglas que se crean
+
+Una vez obtenidas las reglas, tenemos la posibilidad de establecer restricciones o filtros. Por ejemplo, para manterner solo las que contengan “Blueberry Whole Milk Yogurt Pouch” en el antecedente, con una confianza superior al 90%:
+
+
+```{r echo=FALSE}
+reglas_filtradas <- subset(reglas,
+                           subset = lhs %ain% "Blueberry Whole Milk Yogurt Pouch" &
+                                    confidence > 0.9)
+
+inspect(reglas_filtradas)
+```
+
+### Filtrar reglas creadas
+
+También es posible filtrar las reglas una vez que han sido creadas. Por ejemplo, se procede a filtrar aquellas reglas que contienen Blueberry Whole Milk  Yogurt Pouch,Organic Whole Milk Strawberry Beet Berry Yogurt Pouch
+
+```{r echo=FALSE}
+filtrado_reglas <- subset(x = reglas,
+                          subset = lhs %ain% c("Blueberry Whole Milk Yogurt Pouch","Organic Whole Milk Strawberry Beet Berry Yogurt Pouch"))
+inspect(filtrado_reglas)
+```
+
+### Reglas maximales
+
+Un itemset es maximal si no existe otro itemset que sea su superset. Una regla de asociación se define como regla maximal si está generada con un itemset maximal. Con la función is.maximal() se pueden identificar las reglas maximales.
+
+```{r echo=FALSE}
+reglas_maximales <- reglas[is.maximal(reglas)]
+reglas_maximales
+inspect(reglas_maximales)
+```
+
+
+Es así como 5 de las siete reglas son maximales.
+
+### Reglas redundantes
+
+Dos reglas son idénticas si tienen el mismo antecedente (parte izquierda) y consecuente (parte derecha). Supóngase ahora que una de estas reglas tiene en su antecedente los mismos items que forman el antecedente de la otra, junto con algunos items más. La regla más genérica se considera redundante, ya que no aporta información adicional. En concreto, se considera que una regla $X \rightarrow Y$ es redundante si existe un subset $X’$ tal que existe una regla $X’ \rightarrow Y$ cuyo soporte es mayor.
+
+$X \rightarrow Y$ es redundante si existe un subset $X’$ tal que: $conf(X’ \rightarrow Y) >= conf(X \rightarrow Y)$
+
+```{r echo=FALSE}
+reglas_redundantes <- reglas[is.redundant(x = reglas, measure = "confidence")]
+reglas_redundantes
+```
+
+
+Como se observa existen cero reglas redundantes en este caso.
+
+## Visualización
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+subrules <- head(sort(reglas, by="lift"), 5)
+plot(subrules, method="graph", control=list(type="items"))
+
+```
+Para una mejor visualización de las reglas se procede a realizar un gráfico tipo grafo y se tiene lo siguiente: en una primera instancia la gente compra productos para dieta y estos son: si compra Leche entera y  fresas entonces también comprará pera orgánica, otro caso importante es el de la compra de compra de espinacas y fresas entonces la persona también compra leche entera, así se puede deducir que los clientes que compran estos productos en su mayoría son clientes con buena salud debido a que siguen una dieta estricta en bajas calorías y productos orgánicos.
+
+# Preguntas del Taller
+
+## Proponga un método para extraer eficientemente un conjunto de relaciones.
+
+###   Algoritmo Eclat 
+
+En el 2000, Zaki propuso un nuevo algoritmo para encontrar patrones frecuentes (itemsets frecuentes) llamado Equivalence Class Transformation (Eclat). La principal diferencia entre este algoritmo y Apriori es la forma en que se escanean y analizan los datos. El algoritmo Apriori emplea transacciones almacenadas de forma horizontal, es decir, todos los elementos que forman una misma transacción están en la misma línea. El algoritmo Eclat, sin embargo, analiza las transacciones en formato vertical, donde cada línea contiene un item y las transacciones en las que aparece ese item.
+
+### Obtención de Ítems frecuentes
+
+Con la función ecalt() se tiene los itemsets frecuentes como reglas de asociación que superen un determinado soporte y confianza. 
+
+```{r echo=FALSE}
+# Busqueda de itemsets frecuentes
+itemsets <- eclat(data = transacciones,
+                    parameter = list(support = soporte,
+                                     minlen=2,
+                                     maxlen =5,
+                                     target = "frequent itemset"),
+                  control = list(verbose = FALSE))
+
+#summary(itemsets_frecuentes)
+summary(itemsets)
+```
+
+### Los items con mayor soporte
+
+```{r echo=FALSE}
+# Se muestran los top 10 itemsets de mayor a menor soporte
+top_10_itemsets <- sort(itemsets_frecuentes, by = "support", decreasing = TRUE)[1:6]
+inspect(top_10_itemsets)
+```
+
+```{r echo=FALSE}
+
+
+# Para representarlos con ggplot se convierte a dataframe 
+as(top_10_itemsets, Class = "data.frame") %>%
+  ggplot(aes(x = reorder(items, support), y = support)) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Itemsets más frecuentes", x = "itemsets") +
+  theme_bw()
+```
+
+En el gráfico anterior se observa de mejor manera que el producto que mas está en las transacciones es Banana.
+
+### Reglas de Asociación con el Algoritmo Eclat
+```{r echo=FALSE}
+# Obtencion de reglas de asociacion
+reglas2 <- ruleInduction(itemsets,transacciones, confidence = confianza)
+
+print(paste("Reglas generadas:", length(reglas2)))
+summary(reglas2)
+```
+
+las reglas ordenadas son:
+
+```{r echo=FALSE}
+inspect(sort(x = reglas2, decreasing = TRUE, by = "confidence"))
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+subrules <- head(sort(reglas2, by="lift"), 5)
+plot(subrules, method="graph", control=list(type="items"))
+
+```
+
+De manera similar, se obtiene una gráfica de las 5 primeras reglas de asociación pero en este caso con el algoritmo eclat, entonces se observa que el comportamiento es el mismo.
+
+
+
+
+## Con base en los resultados de la minería y las medidas de evaluación del patrón discutidas en este capítulo, discuta qué medida puede descubrir de manera convincente patrones de compras.
+
+Además de la confianza y el soporte, existen otras métricas que permiten cuantificar la calidad de las reglas y la probabilidad de que reflejen relaciones reales. Algunas de las más empleadas son:
+
+### Lift: 
+
+El estadístico lift compara la frecuencia observada de una regla con la frecuencia esperada simplemente por azar (si la regla no existe realmente). El valor lift de una regla “si $X$, entonces $Y$” se obtiene acorde a la siguiente ecuación:
+
+$lift=\frac{soporte(X \cup Y)}{soporte(X) *soporte (Y)}$
+
+Cuanto más se aleje el valor de lift de 1, más evidencias de que la regla no se debe a un artefacto aleatorio, es decir, mayor la evidencia de que la regla representa un patrón real.
+
+```{r echo=FALSE}
+summary(reglas)
+```
+Como se observa en el summary de reglas, se tiene que el lift mínimo es de 34,41, por tanto la evidencia es mayor de que las reglas presenten un patrón real 
+
+### Test de fisher
+
+Fisher exact test: devuelve el p-value asociado a la probabilidad de observar la regla solo por azar.
+
+Se puede calcular el test de fisher para obtener si las reglas  representan patrones reales así se tiene:
+```{r echo=FALSE}
+testFisher <- interestMeasure(reglas, 
+                              measure = "fishersExactTest",
+                              transactions = transacciones)
+
+summary(testFisher)
+```
+
+
+
+
+```{r echo=FALSE}
+metricas <- interestMeasure(reglas, measure = c("coverage", "fishersExactTest"),
+                            transactions = transacciones)
+metricas
+
+```
+
+Como se observa en la tabla anterior los p-valores son muy pequeños, por lo que es probable que las reglas reflejen patrones de comportamiento en los pedidos más acercados a la realidad.
+
+###  Métrica Cosine 
+
+El coseno es una medida de correlación nula-invariante entre los elementos en $X$ y $Y$, el resumen de los resultados es,
+
+```{r echo=FALSE}
+cos<-interestMeasure(reglas, 
+                              measure = "cosine" ,
+                              transactions = transacciones)
+summary(cos)
+```
+
+Si los valores son cercanos a 0.5 quiere decir que la correlación es nula y en este caso los valores se acercan más a cero, puede ser una buena medida pero al tener que ver con las correlaciones se necesitaria hacer una pureba directa sobre las transacciones.
+
+###  Kulczynski 
+
+Si está cerca de 0 o 1, entonces tenemos una regla interesante que está asociada negativa o positivamente, respectivamente. Si Kulczynski está cerca de 0.5, entonces podemos o no tener una regla interesante.
+
+```{r echo=FALSE}
+metricas1 <- interestMeasure(reglas, measure = c("coverage", "kulczynsk"),
+                            transactions = transacciones)
+metricas1
+```
+
+Con el método de Kulczynski se tiene que la mayoría de reglas representan patrones interesantes.
+
+### 
+
+# Comparación del Algortimo Apriori y Eclat
+
+- La diferencia más grande que podemos identificar en nuestros dos algorimos es la forma en la que se escanean y se analizan los datos.  Por un lado el algoritmo Eclat analiza las transacciones de forma vertical, dónde cada linea contiene un item a diferencia del algoritmo Apriori que emplea  transacciones almacenadas de forma horizontal.
+
+- Dado que el algoritmo Apriori fue uno de los primeros algoritmos desarrollados para la búsqueda de reglas de asociación resulta no tan eficiente al momento de generar combinaciones mientras que el algoritmo Eclat revisa varias combinaciones para encontrar la frecuencia .
+
+- El algoritmo Apriori resulta computacionalmente más complejo y pesado al momento de generar los conjuntos de ítems que no son frecuentes, sim embargo  cuando se trabaja con pequeños conjuntos de datos, el algoritmo Apriori es más eficiente y comprensible mientras que en el algoritmo Eclat resulta ser más eficiente porque no se considera ítems que no son frecuentes desde un principio.
+
+# Conclusiones
+
+1) En el algoritmo apriori influye mucho el soporte y la confianza que se toma, debido a que si se toma un soporte muy alto, el algoritmo no podrá encontrar reglas de asociación suficiente que explique la base de datos, y pasa de manera similar con la confianza. Por esa razón es necesario tener en cuenta la dimensionalidad de la base de datos y la decisión de los parámetros a escoger.
+  
+  2) Para el caso de evaluar las reglas de asociación el método de lift tiene grandes problemas cuando la distribución del tamaño de las transacciones es sesgada, se recomienda usar el método kulczynsk debido a que cuenta con la propiedad de invarianza nula, que las demás medidas no poseen.
